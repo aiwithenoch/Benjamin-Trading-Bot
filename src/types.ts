@@ -13,12 +13,13 @@ export interface Trade {
     direction: Direction;
     lot: number;
     entry: number;
-    exit: number | null;
-    pips: number;
+    exit?: number | null;
+    pips?: number;
     pnl: number;
     status: TradeStatus;
     sl?: number;
     tp?: number;
+    openTime?: string; // ISO string for when trade was opened
 }
 
 export interface Signal {

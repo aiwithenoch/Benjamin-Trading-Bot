@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     LayoutDashboard, Activity, History, BrainCircuit,
     Settings as SettingsIcon, Menu, X, Clock, Power, AlertCircle, CheckCircle2, LogOut
@@ -14,6 +14,7 @@ import { useDerivPrices, useLivePnL, useSettings } from './hooks';
 import { MOCK_HISTORY, MOCK_NEWS } from './mockData';
 import { supabase } from './lib/supabase';
 import { fetchTrades, fetchSignals, fetchSettings, saveSignal, saveSettings as dbSaveSettings, closeTrade as dbCloseTrade } from './lib/db';
+import { startScalpingEngine, stopScalpingEngine } from './lib/scalping-engine';
 import type { Page, Trade, Signal, ToastState, ModalState, Settings } from './types';
 
 const INITIAL_SETTINGS: Settings = {
@@ -27,7 +28,7 @@ export default function App() {
     const [authLoading, setAuthLoading] = useState(true);
     const [page, setPage] = useState<Page>('dashboard');
     const [mobileOpen, setMobileOpen] = useState(false);
-    const [botStatus, setBotStatus] = useState<'LIVE' | 'PAUSED' | 'STOPPED'>('LIVE');
+    const [botStatus, setBotStatus] = useState<'LIVE' | 'PAUSED' | 'STOPPED'>('STOPPED');
     const [clock, setClock] = useState(new Date());
     const [toast, setToast] = useState<ToastState | null>(null);
     const [modal, setModal] = useState<ModalState | null>(null);
@@ -35,6 +36,11 @@ export default function App() {
     const [tradeHistory, setTradeHistory] = useState<Trade[]>([]);
     const [signals, setSignals] = useState<Signal[]>([]);
     const [dataLoading, setDataLoading] = useState(false);
+    const [botLog, setBotLog] = useState<string[]>([]);
+    const settingsRef = useRef<Settings | null>(null);
+    const lossTodayRef = useRef(0);
+    const tradesTodayRef = useRef(0);
+    const consLossRef = useRef(0);
 
     const showToast = useCallback((message: string, type: ToastState['type'] = 'success') => {
         setToast({ message, type, id: Date.now() });
@@ -124,18 +130,58 @@ export default function App() {
         });
     }, [liveTrades, prices, session, showToast]);
 
+    // Keep settingsRef in sync
+    useEffect(() => { settingsRef.current = settings; }, [settings]);
+
     const toggleBot = useCallback(() => {
         if (botStatus === 'LIVE') {
             setModal({
-                title: 'Stop Bot',
-                message: 'Stop the bot? No new trades will open until restarted.',
-                onConfirm: () => { setBotStatus('STOPPED'); showToast('Bot stopped', 'warning'); setModal(null); },
+                title: 'Stop Scalping Bot',
+                message: 'Stop the bot? All scanning will pause. Open trades remain open.',
+                onConfirm: () => {
+                    stopScalpingEngine();
+                    setBotStatus('STOPPED');
+                    showToast('Bot stopped', 'warning');
+                    setModal(null);
+                },
             });
         } else {
             setBotStatus('LIVE');
-            showToast('Bot started — scanning...', 'success');
+            showToast('🤖 Scalping bot started — scanning M5 candles...', 'success');
+            setBotLog([]);
+            startScalpingEngine({
+                onSignal: (sig) => {
+                    setSignals(prev => [sig, ...prev.slice(0, 99)]);
+                    if (session?.user && supabase) saveSignal(sig, session.user.id).catch(() => { });
+                },
+                onTradeOpened: (trade) => {
+                    setLiveTrades(prev => [trade, ...prev]);
+                    tradesTodayRef.current++;
+                },
+                onTradeClosed: (contractId, pnl) => {
+                    if (pnl < 0) lossTodayRef.current += Math.abs(pnl);
+                    if (pnl < 0) consLossRef.current++; else consLossRef.current = 0;
+                    setLiveTrades(prev => {
+                        const trade = prev.find(t => t.id === String(contractId));
+                        if (!trade) return prev;
+                        const closed = { ...trade, status: 'CLOSED' as const, pnl };
+                        setTradeHistory(h => [closed, ...h]);
+                        if (session?.user && supabase) {
+                            dbCloseTrade(String(contractId), closed.exit ?? closed.entry, closed.pips ?? 0, pnl)
+                                .catch(() => { });
+                        }
+                        return prev.filter(t => t.id !== String(contractId));
+                    });
+                },
+                onLog: (msg) => setBotLog(prev => [`${new Date().toLocaleTimeString()}: ${msg}`, ...prev.slice(0, 49)]),
+                showToast,
+                getSettings: () => settingsRef.current,
+                getLossTodayUSD: () => lossTodayRef.current,
+                getTradesToday: () => tradesTodayRef.current,
+                getConsecutiveLosses: () => consLossRef.current,
+            });
         }
-    }, [botStatus, showToast]);
+    }, [botStatus, showToast, session]);
 
     const addSignalAction = useCallback(async (s: Signal) => {
         if (session?.user && supabase) {
