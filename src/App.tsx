@@ -1,0 +1,280 @@
+import { useState, useEffect, useCallback } from 'react';
+import {
+    LayoutDashboard, Activity, History, BrainCircuit,
+    Settings, Menu, X, Clock, Power, AlertCircle, CheckCircle2
+} from 'lucide-react';
+import { Dashboard } from './pages/Dashboard';
+import { LiveTrades } from './pages/LiveTrades';
+import { TradeHistory } from './pages/TradeHistory';
+import { AISignals } from './pages/AISignals';
+import { SettingsPage } from './pages/Settings';
+import { Badge } from './components';
+import { useDerivPrices, useLivePnL, useSettings } from './hooks';
+import { MOCK_HISTORY, INITIAL_SIGNALS, MOCK_NEWS } from './mockData';
+import type { Page, Trade, Signal, ToastState, ModalState } from './types';
+
+const INITIAL_SETTINGS = {
+    maxDailyLoss: 10, lotSize: 0.1, riskReward: '1:2',
+    tradeXAU: true, tradeBTC: true,
+    notifOpen: true, notifClose: true, notifLimit: true, notifSignal: false,
+};
+
+export default function App() {
+    const [page, setPage] = useState<Page>('dashboard');
+    const [mobileOpen, setMobileOpen] = useState(false);
+    const [botStatus, setBotStatus] = useState<'LIVE' | 'PAUSED' | 'STOPPED'>('LIVE');
+    const [clock, setClock] = useState(new Date());
+
+    const [toast, setToast] = useState<ToastState | null>(null);
+    const [modal, setModal] = useState<ModalState | null>(null);
+
+    const [liveTrades, setLiveTrades] = useState<Trade[]>([
+        { id: 'L1', date: new Date().toISOString(), symbol: 'XAUUSD', direction: 'BUY', lot: 0.1, entry: 2340.00, exit: null, pips: 0, pnl: 0, status: 'OPEN', sl: 2335.00, tp: 2350.00 },
+    ]);
+
+    const [signals, setSignals] = useState<Signal[]>(INITIAL_SIGNALS);
+
+    const showToast = useCallback((message: string, type: ToastState['type'] = 'success') => {
+        setToast({ message, type, id: Date.now() });
+        setTimeout(() => setToast(null), 3500);
+    }, []);
+
+    const { settings, save } = useSettings(INITIAL_SETTINGS, showToast);
+    const { prices, connected } = useDerivPrices();
+    useLivePnL(liveTrades, setLiveTrades, prices);
+
+    // Clock
+    useEffect(() => {
+        const id = setInterval(() => setClock(new Date()), 1000);
+        return () => clearInterval(id);
+    }, []);
+
+    const todayLoss = liveTrades.filter(t => t.pnl < 0).reduce((s, t) => s + Math.abs(t.pnl), 0);
+    const dailyLossPercent = Math.min((todayLoss / settings.maxDailyLoss) * 100, 100);
+    const lossColorClass = dailyLossPercent >= 90 ? 'bg-aurum-red' : dailyLossPercent >= 70 ? 'bg-yellow-500' : 'bg-aurum-primary';
+
+    // Auto-stop on daily loss
+    useEffect(() => {
+        if (dailyLossPercent >= 100 && botStatus === 'LIVE') {
+            setBotStatus('STOPPED');
+            showToast('Daily loss limit reached — bot stopped.', 'error');
+        }
+    }, [dailyLossPercent, botStatus, showToast]);
+
+    const closeTrade = useCallback((id: string) => {
+        setModal({
+            title: 'Close Position',
+            message: 'Close this position at current market price?',
+            onConfirm: () => {
+                setLiveTrades(p => p.filter(t => t.id !== id));
+                showToast('Position closed', 'success');
+                setModal(null);
+            },
+        });
+    }, [showToast]);
+
+    const toggleBot = useCallback(() => {
+        if (botStatus === 'LIVE') {
+            setModal({
+                title: 'Stop Bot',
+                message: 'Stop the bot? No new trades will open until restarted.',
+                onConfirm: () => { setBotStatus('STOPPED'); showToast('Bot stopped', 'warning'); setModal(null); },
+            });
+        } else {
+            setBotStatus('LIVE');
+            showToast('Bot started — scanning...', 'success');
+        }
+    }, [botStatus, showToast]);
+
+    const addSignal = useCallback((s: Signal) => {
+        setSignals(prev => [s, ...prev]);
+    }, []);
+
+    const navItems = [
+        { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+        { id: 'live', icon: Activity, label: 'Live Trades', badge: liveTrades.length },
+        { id: 'history', icon: History, label: 'Trade History' },
+        { id: 'signals', icon: BrainCircuit, label: 'AI Signals' },
+        { id: 'settings', icon: Settings, label: 'Settings' },
+    ] as const;
+
+    return (
+        <div className="min-h-screen flex bg-aurum-bg text-aurum-text font-sans selection:bg-aurum-primary/30">
+
+            {/* Mobile overlay */}
+            {mobileOpen && (
+                <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setMobileOpen(false)} />
+            )}
+
+            {/* Sidebar */}
+            <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-aurum-surface2 border-r border-aurum-border flex flex-col transform transition-transform duration-300 ease-in-out ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
+                {/* Logo */}
+                <div className="p-6 flex items-center justify-between border-b border-aurum-border/50">
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-aurum-text to-aurum-primary-light bg-clip-text text-transparent">AURUM</h1>
+                        <p className="text-xs text-aurum-text-muted mt-0.5">by Riverside AI</p>
+                    </div>
+                    <button className="lg:hidden text-aurum-text-muted hover:text-aurum-text" onClick={() => setMobileOpen(false)}>
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {/* Nav */}
+                <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+                    {navItems.map(item => (
+                        <button
+                            key={item.id}
+                            onClick={() => { setPage(item.id as Page); setMobileOpen(false); }}
+                            className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${page === item.id
+                                    ? 'bg-aurum-primary/15 text-aurum-primary font-semibold'
+                                    : 'text-aurum-text-muted hover:bg-aurum-surface3 hover:text-aurum-text'
+                                }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <item.icon size={17} />
+                                <span>{item.label}</span>
+                            </div>
+                            {'badge' in item && item.badge !== undefined && item.badge > 0 && (
+                                <span className="bg-aurum-primary text-aurum-bg text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                                    {item.badge}
+                                </span>
+                            )}
+                        </button>
+                    ))}
+                </nav>
+
+                {/* Sidebar Footer */}
+                <div className="p-4 border-t border-aurum-border space-y-3">
+                    {/* Daily Loss */}
+                    <div>
+                        <div className="flex justify-between text-xs mb-1">
+                            <span className="text-aurum-text-muted">Daily Loss</span>
+                            <span className="font-mono text-aurum-text">${todayLoss.toFixed(2)} / ${settings.maxDailyLoss}</span>
+                        </div>
+                        <div className="h-1.5 bg-aurum-surface3 rounded-full overflow-hidden">
+                            <div className={`h-full ${lossColorClass} transition-all duration-700`} style={{ width: `${dailyLossPercent}%` }} />
+                        </div>
+                    </div>
+                    {/* Bot Status */}
+                    <div className="flex items-center justify-between bg-aurum-surface3 px-3 py-2.5 rounded-xl border border-aurum-border">
+                        <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${botStatus === 'LIVE' ? 'bg-aurum-green status-pulse' : 'bg-aurum-red'}`} />
+                            <span className="text-sm font-medium">{botStatus === 'LIVE' ? 'Bot Active' : 'Bot Stopped'}</span>
+                        </div>
+                        <button onClick={toggleBot} className="text-aurum-text-muted hover:text-aurum-text transition-colors p-1 rounded">
+                            <Power size={15} />
+                        </button>
+                    </div>
+                    {/* Connection status */}
+                    <div className="flex items-center gap-1.5 text-xs">
+                        <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-aurum-cyan' : 'bg-aurum-gold'}`} />
+                        <span className="text-aurum-text-muted">{connected ? 'Deriv WS Connected' : 'Simulated Feed'}</span>
+                    </div>
+                </div>
+            </aside>
+
+            {/* Main */}
+            <div className="flex-1 flex flex-col lg:ml-64 min-h-screen">
+                {/* Topbar */}
+                <header className="h-16 bg-aurum-bg/80 backdrop-blur-md border-b border-aurum-border flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30">
+                    <div className="flex items-center gap-4">
+                        <button className="lg:hidden text-aurum-text hover:text-aurum-text-muted transition-colors" onClick={() => setMobileOpen(true)}>
+                            <Menu size={24} />
+                        </button>
+                        <h2 className="text-base font-semibold capitalize hidden sm:block text-aurum-text">{page.replace('-', ' ')}</h2>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="hidden md:flex items-center gap-2 text-sm text-aurum-text-muted font-mono">
+                            <Clock size={13} />
+                            <span>{clock.toLocaleTimeString()}</span>
+                        </div>
+                        <Badge variant={botStatus === 'LIVE' ? 'green' : 'red'}>
+                            {botStatus === 'LIVE' ? '● LIVE' : '■ STOPPED'}
+                        </Badge>
+                        <span className="text-xs text-aurum-text-muted hidden sm:block">v1.0</span>
+                    </div>
+                </header>
+
+                {/* Page Content */}
+                <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
+                    {dailyLossPercent >= 100 && (
+                        <div className="mb-6 bg-aurum-red/10 border border-aurum-red/30 text-aurum-red px-4 py-3 rounded-xl flex items-center gap-3">
+                            <AlertCircle size={18} />
+                            <span className="font-medium text-sm">Daily loss limit reached — bot paused automatically.</span>
+                        </div>
+                    )}
+
+                    {page === 'dashboard' && (
+                        <Dashboard
+                            prices={prices}
+                            liveTrades={liveTrades}
+                            signals={signals}
+                            todayLoss={todayLoss}
+                            maxDailyLoss={settings.maxDailyLoss}
+                            dailyLossPercent={dailyLossPercent}
+                            lossColorClass={lossColorClass}
+                            onViewAll={() => setPage('history')}
+                            mockHistory={MOCK_HISTORY}
+                        />
+                    )}
+                    {page === 'live' && (
+                        <LiveTrades trades={liveTrades} prices={prices} onClose={closeTrade} />
+                    )}
+                    {page === 'history' && (
+                        <TradeHistory history={MOCK_HISTORY} showToast={showToast} />
+                    )}
+                    {page === 'signals' && (
+                        <AISignals signals={signals} news={MOCK_NEWS} showToast={showToast} onNewSignal={addSignal} />
+                    )}
+                    {page === 'settings' && (
+                        <SettingsPage
+                            settings={settings}
+                            botStatus={botStatus}
+                            todayLoss={todayLoss}
+                            dailyLossPercent={dailyLossPercent}
+                            lossColorClass={lossColorClass}
+                            onToggleBot={toggleBot}
+                            onSave={save}
+                        />
+                    )}
+                </main>
+            </div>
+
+            {/* Toast */}
+            {toast && (
+                <div className="fixed bottom-6 right-6 z-[200] animate-fadeIn">
+                    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border ${toast.type === 'success' ? 'bg-aurum-surface border-aurum-green/30' :
+                            toast.type === 'error' ? 'bg-aurum-surface border-aurum-red/30' :
+                                'bg-aurum-surface border-aurum-gold/30'
+                        }`}>
+                        {toast.type === 'success' && <CheckCircle2 size={17} className="text-aurum-green shrink-0" />}
+                        {toast.type === 'error' && <AlertCircle size={17} className="text-aurum-red shrink-0" />}
+                        {toast.type === 'warning' && <AlertCircle size={17} className="text-aurum-gold shrink-0" />}
+                        <span className="text-sm font-medium text-aurum-text">{toast.message}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal */}
+            {modal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+                    onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
+                    <div className="bg-aurum-surface border border-aurum-border rounded-2xl p-7 max-w-sm w-full shadow-2xl animate-fadeIn">
+                        <h3 className="text-xl font-bold mb-2">{modal.title}</h3>
+                        <p className="text-aurum-text-muted text-sm mb-7">{modal.message}</p>
+                        <div className="flex gap-3 justify-end">
+                            <button onClick={() => setModal(null)}
+                                className="px-5 py-2.5 rounded-xl font-medium text-sm hover:bg-aurum-surface3 transition-colors">
+                                Cancel
+                            </button>
+                            <button onClick={modal.onConfirm}
+                                className="px-5 py-2.5 rounded-xl font-semibold text-sm bg-aurum-primary text-aurum-bg hover:bg-aurum-primary-light transition-colors active:scale-95">
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
