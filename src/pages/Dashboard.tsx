@@ -6,9 +6,9 @@ import {
 import {
     LineChart, Line, ResponsiveContainer, YAxis, PieChart, Pie, Cell, Tooltip, AreaChart, Area
 } from 'recharts';
-import { Card, Badge, SectionHeader } from './components';
-import type { Prices, Trade, Signal } from './types';
-import { SPARKLINE_DATA } from './mockData';
+import { Card, Badge, SectionHeader } from '../components';
+import type { Prices, Trade, Signal } from '../types';
+import { SPARKLINE_DATA } from '../mockData';
 
 interface DashboardProps {
     prices: Prices;
