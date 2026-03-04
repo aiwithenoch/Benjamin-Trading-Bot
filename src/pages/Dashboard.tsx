@@ -19,20 +19,20 @@ interface DashboardProps {
     dailyLossPercent: number;
     lossColorClass: string;
     onViewAll: () => void;
-    mockHistory: Trade[];
+    tradeHistory: Trade[];
 }
 
 const PnLHistoryData = SPARKLINE_DATA;
 
 export function Dashboard({
     prices, liveTrades, signals, todayLoss, maxDailyLoss,
-    dailyLossPercent, lossColorClass, onViewAll, mockHistory
+    dailyLossPercent, lossColorClass, onViewAll, tradeHistory
 }: DashboardProps) {
     const totalPnl = liveTrades.reduce((s, t) => s + t.pnl, 0);
-    const today = mockHistory.slice(0, 5);
+    const today = tradeHistory.slice(0, 5);
     const dayPnl = today.reduce((s, t) => s + t.pnl, 0);
-    const wins = mockHistory.filter(t => t.pnl > 0);
-    const winRate = mockHistory.length > 0 ? ((wins.length / mockHistory.length) * 100).toFixed(0) : '0';
+    const wins = tradeHistory.filter(t => t.pnl > 0);
+    const winRate = tradeHistory.length > 0 ? ((wins.length / tradeHistory.length) * 100).toFixed(0) : '0';
     const latestSignal = signals.find(s => s.decision === 'VALIDATED') || signals[0];
 
     return (
@@ -63,7 +63,7 @@ export function Dashboard({
                     </div>
                     <div className="flex items-center gap-1 mt-2">
                         {dayPnl >= 0 ? <TrendingUp size={12} className="text-aurum-green" /> : <TrendingDown size={12} className="text-aurum-red" />}
-                        <span className="text-xs text-aurum-text-muted">{mockHistory.slice(0, 5).length} trades today</span>
+                        <span className="text-xs text-aurum-text-muted">{tradeHistory.slice(0, 5).length} trades today</span>
                     </div>
                 </Card>
 
@@ -98,7 +98,7 @@ export function Dashboard({
                     <div>
                         <p className="text-xs text-aurum-text-muted font-medium uppercase tracking-wider mb-1">Win Rate</p>
                         <h3 className="text-3xl font-mono font-bold">{winRate}%</h3>
-                        <p className="text-xs text-aurum-text-muted">{wins.length}/{mockHistory.length} trades</p>
+                        <p className="text-xs text-aurum-text-muted">{wins.length}/{tradeHistory.length} trades</p>
                     </div>
                 </Card>
 
@@ -214,7 +214,7 @@ export function Dashboard({
                             </tr>
                         </thead>
                         <tbody>
-                            {mockHistory.slice(0, 6).map((trade, i) => (
+                            {tradeHistory.slice(0, 6).map((trade, i) => (
                                 <tr key={trade.id} className={`border-b border-aurum-border/40 font-mono text-xs ${i % 2 === 0 ? 'bg-aurum-surface' : 'bg-aurum-surface2/40'} hover:bg-aurum-surface3/50 transition-colors`}>
                                     <td className="px-4 py-3 font-sans font-semibold text-sm">{trade.symbol}</td>
                                     <td className="px-4 py-3">

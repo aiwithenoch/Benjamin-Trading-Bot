@@ -3,9 +3,9 @@ import type { Prices, Trade, Settings } from './types';
 import { INITIAL_PRICES } from './mockData';
 
 // ─── useDerivPrices: real WebSocket prices via Deriv API ─────────────────────
-const DERIV_WS = 'wss://ws.binaryws.com/websockets/v3?app_id=1089'; // Vite injects these at build time via vite.config.ts `define`
-declare const process: { env: { DERIV_API_TOKEN?: string; GEMINI_API_KEY?: string } };
-const DERIV_TOKEN = (typeof process !== 'undefined' && process.env.DERIV_API_TOKEN) ? process.env.DERIV_API_TOKEN : 'd2XG7nqyVOKFfam';
+// Vite injects these at build time via vite.config.ts `define` or .env files
+const DERIV_WS = 'wss://ws.binaryws.com/websockets/v3?app_id=1089';
+const DERIV_TOKEN = import.meta.env.VITE_DERIV_API_TOKEN || 'd2XG7nqyVOKFfam';
 
 export function useDerivPrices() {
     const [prices, setPrices] = useState<Prices>(INITIAL_PRICES);

@@ -1,25 +1,30 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
     LayoutDashboard, Activity, History, BrainCircuit,
-    Settings, Menu, X, Clock, Power, AlertCircle, CheckCircle2
+    Settings as SettingsIcon, Menu, X, Clock, Power, AlertCircle, CheckCircle2, LogOut
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { LiveTrades } from './pages/LiveTrades';
 import { TradeHistory } from './pages/TradeHistory';
 import { AISignals } from './pages/AISignals';
 import { SettingsPage } from './pages/Settings';
-import { Badge } from './components';
+import { Auth } from './pages/Auth';
+import { Badge, Spinner } from './components';
 import { useDerivPrices, useLivePnL, useSettings } from './hooks';
 import { MOCK_HISTORY, INITIAL_SIGNALS, MOCK_NEWS } from './mockData';
-import type { Page, Trade, Signal, ToastState, ModalState } from './types';
+import { supabase } from './lib/supabase';
+import { fetchTrades, fetchSignals, fetchSettings, saveTrade, saveSignal, saveSettings as dbSaveSettings, closeTrade as dbCloseTrade } from './lib/db';
+import type { Page, Trade, Signal, ToastState, ModalState, Settings } from './types';
 
-const INITIAL_SETTINGS = {
+const INITIAL_SETTINGS: Settings = {
     maxDailyLoss: 10, lotSize: 0.1, riskReward: '1:2',
     tradeXAU: true, tradeBTC: true,
     notifOpen: true, notifClose: true, notifLimit: true, notifSignal: false,
 };
 
 export default function App() {
+    const [session, setSession] = useState<any>(null);
+    const [authLoading, setAuthLoading] = useState(true);
     const [page, setPage] = useState<Page>('dashboard');
     const [mobileOpen, setMobileOpen] = useState(false);
     const [botStatus, setBotStatus] = useState<'LIVE' | 'PAUSED' | 'STOPPED'>('LIVE');
@@ -28,20 +33,63 @@ export default function App() {
     const [toast, setToast] = useState<ToastState | null>(null);
     const [modal, setModal] = useState<ModalState | null>(null);
 
-    const [liveTrades, setLiveTrades] = useState<Trade[]>([
-        { id: 'L1', date: new Date().toISOString(), symbol: 'XAUUSD', direction: 'BUY', lot: 0.1, entry: 2340.00, exit: null, pips: 0, pnl: 0, status: 'OPEN', sl: 2335.00, tp: 2350.00 },
-    ]);
-
-    const [signals, setSignals] = useState<Signal[]>(INITIAL_SIGNALS);
+    const [liveTrades, setLiveTrades] = useState<Trade[]>([]);
+    const [tradeHistory, setTradeHistory] = useState<Trade[]>([]);
+    const [signals, setSignals] = useState<Signal[]>([]);
+    const [dataLoading, setDataLoading] = useState(false);
 
     const showToast = useCallback((message: string, type: ToastState['type'] = 'success') => {
         setToast({ message, type, id: Date.now() });
         setTimeout(() => setToast(null), 3500);
     }, []);
 
-    const { settings, save } = useSettings(INITIAL_SETTINGS, showToast);
+    const { settings, setSettings, save: updateSettings } = useSettings(INITIAL_SETTINGS, showToast);
     const { prices, connected } = useDerivPrices();
     useLivePnL(liveTrades, setLiveTrades, prices);
+
+    // 🔐 Auth Listener
+    useEffect(() => {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+            setAuthLoading(false);
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    // 📥 Load Data on Auth
+    useEffect(() => {
+        if (!session?.user) return;
+
+        const loadData = async () => {
+            setDataLoading(true);
+            try {
+                const [trades, sigs, dbSettings] = await Promise.all([
+                    fetchTrades(session.user.id),
+                    fetchSignals(session.user.id),
+                    fetchSettings(session.user.id)
+                ]);
+
+                const open = trades.filter(t => t.status === 'OPEN');
+                const closed = trades.filter(t => t.status === 'CLOSED');
+
+                setLiveTrades(open);
+                setTradeHistory(closed.length > 0 ? closed : MOCK_HISTORY);
+                setSignals(sigs.length > 0 ? sigs : INITIAL_SIGNALS);
+                if (dbSettings) setSettings(dbSettings);
+            } catch (e) {
+                showToast('Error syncing with database', 'error');
+            } finally {
+                setDataLoading(false);
+            }
+        };
+
+        loadData();
+    }, [session, setSettings, showToast]);
 
     // Clock
     useEffect(() => {
@@ -61,17 +109,29 @@ export default function App() {
         }
     }, [dailyLossPercent, botStatus, showToast]);
 
-    const closeTrade = useCallback((id: string) => {
+    const closeTradeAction = useCallback((id: string) => {
+        const trade = liveTrades.find(t => t.id === id);
+        if (!trade) return;
+
         setModal({
             title: 'Close Position',
             message: 'Close this position at current market price?',
-            onConfirm: () => {
+            onConfirm: async () => {
+                const exit = prices[trade.symbol as keyof typeof prices] || trade.entry;
+                const pnl = trade.pnl;
+                const pips = trade.pips;
+
+                if (session?.user) {
+                    await dbCloseTrade(id, exit, pips, pnl);
+                }
+
                 setLiveTrades(p => p.filter(t => t.id !== id));
+                setTradeHistory(p => [{ ...trade, status: 'CLOSED', exit, pips, pnl }, ...p]);
                 showToast('Position closed', 'success');
                 setModal(null);
             },
         });
-    }, [showToast]);
+    }, [liveTrades, prices, session, showToast]);
 
     const toggleBot = useCallback(() => {
         if (botStatus === 'LIVE') {
@@ -86,21 +146,49 @@ export default function App() {
         }
     }, [botStatus, showToast]);
 
-    const addSignal = useCallback((s: Signal) => {
+    const addSignalAction = useCallback(async (s: Signal) => {
+        if (session?.user) {
+            await saveSignal(s, session.user.id);
+        }
         setSignals(prev => [s, ...prev]);
-    }, []);
+    }, [session]);
+
+    const handleSettingsSave = useCallback(async (key: keyof Settings, value: any) => {
+        const newSettings = { ...settings, [key]: value };
+        updateSettings(key, value);
+        if (session?.user) {
+            await dbSaveSettings(newSettings, session.user.id);
+        }
+    }, [settings, updateSettings, session]);
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        setSession(null);
+        showToast('Logged out successfully', 'success');
+    };
+
+    if (authLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-aurum-bg">
+                <Spinner size="lg" />
+            </div>
+        );
+    }
+
+    if (!session) {
+        return <Auth onSession={setSession} showToast={showToast} />;
+    }
 
     const navItems = [
         { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { id: 'live', icon: Activity, label: 'Live Trades', badge: liveTrades.length },
         { id: 'history', icon: History, label: 'Trade History' },
         { id: 'signals', icon: BrainCircuit, label: 'AI Signals' },
-        { id: 'settings', icon: Settings, label: 'Settings' },
+        { id: 'settings', icon: SettingsIcon, label: 'Settings' },
     ] as const;
 
     return (
-        <div className="min-h-screen flex bg-aurum-bg text-aurum-text font-sans selection:bg-aurum-primary/30">
-
+        <div className="min-h-screen flex bg-aurum-bg text-aurum-text font-sans">
             {/* Mobile overlay */}
             {mobileOpen && (
                 <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setMobileOpen(false)} />
@@ -108,7 +196,6 @@ export default function App() {
 
             {/* Sidebar */}
             <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-aurum-surface2 border-r border-aurum-border flex flex-col transform transition-transform duration-300 ease-in-out ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
-                {/* Logo */}
                 <div className="p-6 flex items-center justify-between border-b border-aurum-border/50">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-aurum-text to-aurum-primary-light bg-clip-text text-transparent">AURUM</h1>
@@ -119,7 +206,6 @@ export default function App() {
                     </button>
                 </div>
 
-                {/* Nav */}
                 <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
                     {navItems.map(item => (
                         <button
@@ -143,9 +229,7 @@ export default function App() {
                     ))}
                 </nav>
 
-                {/* Sidebar Footer */}
                 <div className="p-4 border-t border-aurum-border space-y-3">
-                    {/* Daily Loss */}
                     <div>
                         <div className="flex justify-between text-xs mb-1">
                             <span className="text-aurum-text-muted">Daily Loss</span>
@@ -155,7 +239,6 @@ export default function App() {
                             <div className={`h-full ${lossColorClass} transition-all duration-700`} style={{ width: `${dailyLossPercent}%` }} />
                         </div>
                     </div>
-                    {/* Bot Status */}
                     <div className="flex items-center justify-between bg-aurum-surface3 px-3 py-2.5 rounded-xl border border-aurum-border">
                         <div className="flex items-center gap-2">
                             <div className={`w-2 h-2 rounded-full ${botStatus === 'LIVE' ? 'bg-aurum-green status-pulse' : 'bg-aurum-red'}`} />
@@ -165,38 +248,41 @@ export default function App() {
                             <Power size={15} />
                         </button>
                     </div>
-                    {/* Connection status */}
-                    <div className="flex items-center gap-1.5 text-xs">
+                    <div className="flex items-center gap-1.5 text-xs text-aurum-text-muted">
                         <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-aurum-cyan' : 'bg-aurum-gold'}`} />
-                        <span className="text-aurum-text-muted">{connected ? 'Deriv WS Connected' : 'Simulated Feed'}</span>
+                        <span>{connected ? 'Deriv WS Connected' : 'Simulated Feed'}</span>
                     </div>
                 </div>
             </aside>
 
-            {/* Main */}
             <div className="flex-1 flex flex-col lg:ml-64 min-h-screen">
-                {/* Topbar */}
                 <header className="h-16 bg-aurum-bg/80 backdrop-blur-md border-b border-aurum-border flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30">
                     <div className="flex items-center gap-4">
                         <button className="lg:hidden text-aurum-text hover:text-aurum-text-muted transition-colors" onClick={() => setMobileOpen(true)}>
                             <Menu size={24} />
                         </button>
-                        <h2 className="text-base font-semibold capitalize hidden sm:block text-aurum-text">{page.replace('-', ' ')}</h2>
+                        <h2 className="text-base font-semibold capitalize hidden sm:block">{page.replace('-', ' ')}</h2>
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="hidden md:flex items-center gap-2 text-sm text-aurum-text-muted font-mono">
                             <Clock size={13} />
                             <span>{clock.toLocaleTimeString()}</span>
                         </div>
+                        {dataLoading && <Spinner size="sm" />}
+                        <button
+                            onClick={handleLogout}
+                            className="p-2 hover:bg-aurum-surface2 rounded-lg text-aurum-text-muted hover:text-aurum-red transition-all"
+                            title="Logout"
+                        >
+                            <LogOut size={18} />
+                        </button>
                         <Badge variant={botStatus === 'LIVE' ? 'green' : 'red'}>
                             {botStatus === 'LIVE' ? '● LIVE' : '■ STOPPED'}
                         </Badge>
-                        <span className="text-xs text-aurum-text-muted hidden sm:block">v1.0</span>
                     </div>
                 </header>
 
-                {/* Page Content */}
-                <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
+                <main className="flex-1 p-4 lg:p-8">
                     {dailyLossPercent >= 100 && (
                         <div className="mb-6 bg-aurum-red/10 border border-aurum-red/30 text-aurum-red px-4 py-3 rounded-xl flex items-center gap-3">
                             <AlertCircle size={18} />
@@ -214,17 +300,17 @@ export default function App() {
                             dailyLossPercent={dailyLossPercent}
                             lossColorClass={lossColorClass}
                             onViewAll={() => setPage('history')}
-                            mockHistory={MOCK_HISTORY}
+                            tradeHistory={tradeHistory}
                         />
                     )}
                     {page === 'live' && (
-                        <LiveTrades trades={liveTrades} prices={prices} onClose={closeTrade} />
+                        <LiveTrades trades={liveTrades} prices={prices} onClose={closeTradeAction} />
                     )}
                     {page === 'history' && (
-                        <TradeHistory history={MOCK_HISTORY} showToast={showToast} />
+                        <TradeHistory history={tradeHistory} showToast={showToast} />
                     )}
                     {page === 'signals' && (
-                        <AISignals signals={signals} news={MOCK_NEWS} showToast={showToast} onNewSignal={addSignal} />
+                        <AISignals signals={signals} news={MOCK_NEWS} showToast={showToast} onNewSignal={addSignalAction} />
                     )}
                     {page === 'settings' && (
                         <SettingsPage
@@ -234,13 +320,12 @@ export default function App() {
                             dailyLossPercent={dailyLossPercent}
                             lossColorClass={lossColorClass}
                             onToggleBot={toggleBot}
-                            onSave={save}
+                            onSave={handleSettingsSave}
                         />
                     )}
                 </main>
             </div>
 
-            {/* Toast */}
             {toast && (
                 <div className="fixed bottom-6 right-6 z-[200] animate-fadeIn">
                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border ${toast.type === 'success' ? 'bg-aurum-surface border-aurum-green/30' :
@@ -248,14 +333,11 @@ export default function App() {
                                 'bg-aurum-surface border-aurum-gold/30'
                         }`}>
                         {toast.type === 'success' && <CheckCircle2 size={17} className="text-aurum-green shrink-0" />}
-                        {toast.type === 'error' && <AlertCircle size={17} className="text-aurum-red shrink-0" />}
-                        {toast.type === 'warning' && <AlertCircle size={17} className="text-aurum-gold shrink-0" />}
-                        <span className="text-sm font-medium text-aurum-text">{toast.message}</span>
+                        <span className="text-sm font-medium">{toast.message}</span>
                     </div>
                 </div>
             )}
 
-            {/* Modal */}
             {modal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
                     onClick={e => { if (e.target === e.currentTarget) setModal(null); }}>
