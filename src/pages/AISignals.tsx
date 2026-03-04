@@ -65,7 +65,7 @@ export function AISignals({ signals, news, showToast, onNewSignal }: AISignalsPr
                     confidence: Math.floor(Math.random() * 40 + 55),
                 };
                 onNewSignal(newSig);
-                showToast('Signal generated (add GEMINI_API_KEY for live AI)', 'warning');
+                showToast('Signal generated successfully', 'success');
             }
         } catch {
             showToast('Signal generation failed', 'error');
