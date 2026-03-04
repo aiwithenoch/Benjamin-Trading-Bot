@@ -166,22 +166,7 @@ export default function App() {
         );
     }
 
-    // Safety Screen if Supabase is missing
-    if (!supabase) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-aurum-bg p-6">
-                <Card className="max-w-md p-8 text-center border-aurum-red/30">
-                    <AlertCircle className="mx-auto text-aurum-red mb-4" size={48} />
-                    <h2 className="text-xl font-bold mb-2">Setup Required</h2>
-                    <p className="text-aurum-text-muted text-sm mb-6">
-                        Supabase environment variables are missing. Please add <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> to your Vercel project settings.
-                    </p>
-                    <button onClick={() => window.location.reload()} className="px-6 py-2 bg-aurum-primary text-aurum-bg rounded-lg font-bold">Retry</button>
-                </Card>
-            </div>
-        );
-    }
-
+    // Never block the user with an error screen, just fallback to Auth or Guest
     if (!session) {
         return <Auth onSession={setSession} showToast={showToast} />;
     }
