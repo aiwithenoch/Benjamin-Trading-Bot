@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Card, Spinner } from '../components';
-import { Mail, Lock, User, LogIn, UserPlus, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User, LogIn, UserPlus, AlertCircle, Zap } from 'lucide-react';
 
 interface AuthProps {
     onSession: (session: any) => void;
