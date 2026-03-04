@@ -49,6 +49,11 @@ export default function App() {
 
     // 🔐 Auth Listener
     useEffect(() => {
+        if (!supabase) {
+            setAuthLoading(false);
+            return;
+        }
+
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
             setAuthLoading(false);
@@ -212,8 +217,8 @@ export default function App() {
                             key={item.id}
                             onClick={() => { setPage(item.id as Page); setMobileOpen(false); }}
                             className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${page === item.id
-                                    ? 'bg-aurum-primary/15 text-aurum-primary font-semibold'
-                                    : 'text-aurum-text-muted hover:bg-aurum-surface3 hover:text-aurum-text'
+                                ? 'bg-aurum-primary/15 text-aurum-primary font-semibold'
+                                : 'text-aurum-text-muted hover:bg-aurum-surface3 hover:text-aurum-text'
                                 }`}
                         >
                             <div className="flex items-center gap-3">
@@ -329,8 +334,8 @@ export default function App() {
             {toast && (
                 <div className="fixed bottom-6 right-6 z-[200] animate-fadeIn">
                     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border ${toast.type === 'success' ? 'bg-aurum-surface border-aurum-green/30' :
-                            toast.type === 'error' ? 'bg-aurum-surface border-aurum-red/30' :
-                                'bg-aurum-surface border-aurum-gold/30'
+                        toast.type === 'error' ? 'bg-aurum-surface border-aurum-red/30' :
+                            'bg-aurum-surface border-aurum-gold/30'
                         }`}>
                         {toast.type === 'success' && <CheckCircle2 size={17} className="text-aurum-green shrink-0" />}
                         <span className="text-sm font-medium">{toast.message}</span>
