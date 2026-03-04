@@ -7,7 +7,6 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
       'process.env.DERIV_API_TOKEN': JSON.stringify(env.DERIV_API_TOKEN || 'd2XG7nqyVOKFfam'),
     },
     resolve: {
@@ -18,6 +17,21 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: true,
+      proxy: {
+        '/api/claude': {
+          target: 'https://api.anthropic.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/claude/, ''),
+          headers: {
+            'anthropic-version': '2023-06-01',
+          },
+        },
+        '/api/news-proxy': {
+          target: 'https://api.rss2json.com',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/news-proxy/, ''),
+        },
+      },
     },
   };
 });

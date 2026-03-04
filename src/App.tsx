@@ -11,7 +11,7 @@ import { SettingsPage } from './pages/Settings';
 import { Auth } from './pages/Auth';
 import { Badge, Spinner } from './components';
 import { useDerivPrices, useLivePnL, useSettings } from './hooks';
-import { MOCK_HISTORY, INITIAL_SIGNALS, MOCK_NEWS } from './mockData';
+import { MOCK_HISTORY, MOCK_NEWS } from './mockData';
 import { supabase } from './lib/supabase';
 import { fetchTrades, fetchSignals, fetchSettings, saveSignal, saveSettings as dbSaveSettings, closeTrade as dbCloseTrade } from './lib/db';
 import type { Page, Trade, Signal, ToastState, ModalState, Settings } from './types';
@@ -76,7 +76,7 @@ export default function App() {
                 const closed = (trades || []).filter(t => t.status === 'CLOSED');
                 setLiveTrades(open);
                 setTradeHistory(closed.length > 0 ? closed : MOCK_HISTORY);
-                setSignals(sigs.length > 0 ? sigs : INITIAL_SIGNALS);
+                setSignals(sigs.length > 0 ? sigs : []);
                 if (dbSettings) setSettings(dbSettings);
             } catch (e) {
                 showToast('Error syncing with database', 'error');
@@ -250,7 +250,7 @@ export default function App() {
                     {page === 'dashboard' && <Dashboard prices={prices} liveTrades={liveTrades} signals={signals} todayLoss={todayLoss} maxDailyLoss={settings?.maxDailyLoss || 10} dailyLossPercent={dailyLossPercent} lossColorClass={lossColorClass} onViewAll={() => setPage('history')} tradeHistory={tradeHistory} />}
                     {page === 'live' && <LiveTrades trades={liveTrades} prices={prices} onClose={closeTradeAction} />}
                     {page === 'history' && <TradeHistory history={tradeHistory} showToast={showToast} />}
-                    {page === 'signals' && <AISignals signals={signals} news={MOCK_NEWS} showToast={showToast} onNewSignal={addSignalAction} />}
+                    {page === 'signals' && <AISignals signals={signals} news={MOCK_NEWS} showToast={showToast} onNewSignal={addSignalAction} prices={prices} />}
                     {page === 'settings' && <SettingsPage settings={settings} botStatus={botStatus} todayLoss={todayLoss} dailyLossPercent={dailyLossPercent} lossColorClass={lossColorClass} onToggleBot={toggleBot} onSave={handleSettingsSave} />}
                 </main>
             </div>

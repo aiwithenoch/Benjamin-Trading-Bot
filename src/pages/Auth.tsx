@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Card, Spinner } from '../components';
-import { Mail, Lock, User, LogIn, UserPlus, AlertCircle, Zap } from 'lucide-react';
+import { Mail, Lock, User, LogIn, UserPlus, Zap } from 'lucide-react';
 
 interface AuthProps {
     onSession: (session: any) => void;
@@ -88,10 +88,7 @@ export function Auth({ onSession, showToast }: AuthProps) {
                             <Zap size={14} className="text-aurum-gold" /> Continue as Guest
                         </button>
                     </form>
-                    <div className="mt-8 pt-6 border-t border-aurum-border flex items-start gap-3 bg-aurum-surface2/50 p-4 rounded-xl">
-                        <AlertCircle className="text-aurum-gold shrink-0" size={18} />
-                        <p className="text-[10px] leading-relaxed text-aurum-text-muted italic">AURUM uses end-to-end encrypted sessions via Supabase. Your trading credentials and strategies are secured using industry-standard AES-256 protocols.</p>
-                    </div>
+
                 </Card>
                 <p className="text-center mt-8 text-xs text-aurum-text-muted">RiverSide AI Systems · {new Date().getFullYear()} · All Rights Reserved</p>
             </div>

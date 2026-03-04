@@ -1,14 +1,13 @@
 import React from 'react';
 import {
     LayoutDashboard, Activity, TrendingUp, TrendingDown,
-    ChevronUp, ChevronDown, BrainCircuit, Zap
+    ChevronUp, ChevronDown, BrainCircuit
 } from 'lucide-react';
 import {
-    LineChart, Line, ResponsiveContainer, YAxis, PieChart, Pie, Cell, Tooltip, AreaChart, Area
+    ResponsiveContainer, YAxis, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
 import { Card, Badge, SectionHeader } from '../components';
 import type { Prices, Trade, Signal } from '../types';
-import { SPARKLINE_DATA } from '../mockData';
 
 interface DashboardProps {
     prices: Prices;
@@ -22,7 +21,7 @@ interface DashboardProps {
     tradeHistory: Trade[];
 }
 
-const PnLHistoryData = SPARKLINE_DATA;
+
 
 export function Dashboard({
     prices, liveTrades, signals, todayLoss, maxDailyLoss,
@@ -47,14 +46,14 @@ export function Dashboard({
                         </h3>
                         <div className="w-20 h-10">
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={PnLHistoryData}>
+                                <AreaChart data={today.map((t, i) => ({ value: today.slice(0, i + 1).reduce((s, x) => s + x.pnl, 0) }))}>
                                     <defs>
                                         <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#00E676" stopOpacity={0.25} />
-                                            <stop offset="95%" stopColor="#00E676" stopOpacity={0} />
+                                            <stop offset="5%" stopColor={dayPnl >= 0 ? '#00E676' : '#FF4444'} stopOpacity={0.25} />
+                                            <stop offset="95%" stopColor={dayPnl >= 0 ? '#00E676' : '#FF4444'} stopOpacity={0} />
                                         </linearGradient>
                                     </defs>
-                                    <Area type="monotone" dataKey="value" stroke="#00E676" strokeWidth={2} fill="url(#pnlGrad)" dot={false} />
+                                    <Area type="monotone" dataKey="value" stroke={dayPnl >= 0 ? '#00E676' : '#FF4444'} strokeWidth={2} fill="url(#pnlGrad)" dot={false} />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
