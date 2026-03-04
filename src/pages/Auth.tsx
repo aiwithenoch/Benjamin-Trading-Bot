@@ -17,11 +17,6 @@ export function Auth({ onSession, showToast }: AuthProps) {
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!supabase) {
-            showToast('Supabase not configured. Check Vercel environment variables.', 'error');
-            return;
-        }
-
         setLoading(true);
         try {
             if (isSignUp) {
@@ -83,6 +78,14 @@ export function Auth({ onSession, showToast }: AuthProps) {
                         </div>
                         <button type="submit" disabled={loading} className="w-full bg-aurum-primary text-aurum-bg font-bold py-4 rounded-xl flex items-center justify-center gap-3 hover:bg-aurum-primary-light transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed mt-4 shadow-xl shadow-aurum-primary/10">
                             {loading ? <Spinner /> : isSignUp ? 'Create Account' : 'Sign In Now'}
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => onSession({ user: { id: 'guest', email: 'guest@aurum.ai' } })}
+                            className="w-full border border-aurum-border text-aurum-text-muted font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-aurum-surface2 hover:text-aurum-text transition-all mt-2"
+                        >
+                            <Zap size={14} className="text-aurum-gold" /> Continue as Guest
                         </button>
                     </form>
                     <div className="mt-8 pt-6 border-t border-aurum-border flex items-start gap-3 bg-aurum-surface2/50 p-4 rounded-xl">
