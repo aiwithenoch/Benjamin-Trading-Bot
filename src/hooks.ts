@@ -13,6 +13,8 @@ export function useDerivPrices() {
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const baselineRef = useRef<{ XAUUSD: number; BTCUSD: number } | null>(null);
+
     const connect = useCallback(() => {
         try {
             const ws = new WebSocket(DERIV_WS);
@@ -20,7 +22,6 @@ export function useDerivPrices() {
 
             ws.onopen = () => {
                 setConnected(true);
-                // Authorize with API token
                 ws.send(JSON.stringify({ authorize: DERIV_TOKEN }));
             };
 
@@ -28,7 +29,6 @@ export function useDerivPrices() {
                 const msg = JSON.parse(evt.data);
 
                 if (msg.msg_type === 'authorize') {
-                    // Subscribe to XAU/USD (frxXAUUSD) and BTC/USD (cryBTCUSD) ticks
                     ws.send(JSON.stringify({ ticks: 'frxXAUUSD', subscribe: 1 }));
                     ws.send(JSON.stringify({ ticks: 'cryBTCUSD', subscribe: 1 }));
                 }
@@ -39,6 +39,10 @@ export function useDerivPrices() {
                     const askPrice = ask ?? quote;
 
                     if (symbol === 'frxXAUUSD') {
+                        // Set baseline on first tick of the session
+                        if (!baselineRef.current) baselineRef.current = { XAUUSD: price, BTCUSD: price };
+                        if (!baselineRef.current.XAUUSD) baselineRef.current.XAUUSD = price;
+                        const base = baselineRef.current.XAUUSD;
                         setPrices(prev => {
                             const old = prev.XAUUSD;
                             const isUp = price > old.bid;
@@ -49,16 +53,20 @@ export function useDerivPrices() {
                                     bid: price,
                                     ask: askPrice,
                                     flash: price !== old.bid ? (isUp ? 'green' : 'red') : '',
-                                    change: parseFloat(((price - 2341.50) / 2341.50 * 100).toFixed(2)),
+                                    change: parseFloat(((price - base) / base * 100).toFixed(2)),
                                     spread: parseFloat((askPrice - price).toFixed(2)),
+                                    high: price > old.high ? price : old.high,
+                                    low: old.low === 0 || price < old.low ? price : old.low,
                                 }
                             };
                         });
-                        // Clear flash after 600ms
                         setTimeout(() => setPrices(p => ({ ...p, XAUUSD: { ...p.XAUUSD, flash: '' } })), 600);
                     }
 
                     if (symbol === 'cryBTCUSD') {
+                        if (!baselineRef.current) baselineRef.current = { XAUUSD: price, BTCUSD: price };
+                        if (!baselineRef.current.BTCUSD) baselineRef.current.BTCUSD = price;
+                        const base = baselineRef.current.BTCUSD;
                         setPrices(prev => {
                             const old = prev.BTCUSD;
                             const isUp = price > old.bid;
@@ -69,8 +77,10 @@ export function useDerivPrices() {
                                     bid: price,
                                     ask: askPrice,
                                     flash: price !== old.bid ? (isUp ? 'green' : 'red') : '',
-                                    change: parseFloat(((price - 64250) / 64250 * 100).toFixed(2)),
+                                    change: parseFloat(((price - base) / base * 100).toFixed(2)),
                                     spread: parseFloat((askPrice - price).toFixed(2)),
+                                    high: price > old.high ? price : old.high,
+                                    low: old.low === 0 || price < old.low ? price : old.low,
                                 }
                             };
                         });
@@ -82,7 +92,6 @@ export function useDerivPrices() {
             ws.onerror = () => setConnected(false);
             ws.onclose = () => {
                 setConnected(false);
-                // Reconnect in 5s
                 reconnectTimer.current = setTimeout(connect, 5000);
             };
         } catch {
