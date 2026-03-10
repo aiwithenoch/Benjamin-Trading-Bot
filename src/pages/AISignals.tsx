@@ -12,76 +12,20 @@ interface AISignalsProps {
     prices: Prices;
 }
 
-// ─── Live Market News — real RSS feeds via allorigins.win (free, no key) ─────
-const BULL_WORDS = ['surge', 'rally', 'gain', 'rise', 'bull', 'breakout', 'buy', 'high', 'record', 'soar', 'boost', 'inflow', 'jump', 'climb', 'rebound', 'recovery'];
-const BEAR_WORDS = ['drop', 'fall', 'sell', 'crash', 'bear', 'decline', 'loss', 'outflow', 'ban', 'fear', 'sink', 'plunge', 'dump', 'slide', 'tumble', 'pressure'];
-
-function parseSentiment(title: string): NewsItem['sentiment'] {
-    const lc = title.toLowerCase();
-    const bull = BULL_WORDS.some(w => lc.includes(w));
-    const bear = BEAR_WORDS.some(w => lc.includes(w));
-    if (bull && !bear) return 'BULLISH';
-    if (bear && !bull) return 'BEARISH';
-    return 'NEUTRAL';
-}
-
-function timeAgoStr(pubDate: string): string {
-    const mins = Math.floor((Date.now() - new Date(pubDate).getTime()) / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
-}
-
-// Each entry: [rssUrl, defaultSource]
-const RSS_SOURCES: [string, string][] = [
-    ['https://cointelegraph.com/rss', 'CoinTelegraph'],
-    ['https://cryptonews.com/news/feed/', 'CryptoNews'],
-    ['https://www.forexlive.com/feed/news', 'ForexLive'],
-    ['https://www.investing.com/rss/news_25.rss', 'Investing.com'],
-];
-
-async function fetchRssViaProxy(rssUrl: string, source: string, count: number): Promise<NewsItem[]> {
-    // allorigins.win: free, no key, parses RSS to JSON, works from browser
-    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
-    const res = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
-    if (!res.ok) return [];
-    const { contents } = await res.json();
-    if (!contents) return [];
-
-    // Parse XML manually — allorigins returns raw XML
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(contents, 'text/xml');
-    const items = Array.from(xml.querySelectorAll('item')).slice(0, count);
-
-    return items.map((item, i) => {
-        const title = item.querySelector('title')?.textContent?.trim() ?? '';
-        const pubDate = item.querySelector('pubDate')?.textContent?.trim() ?? new Date().toUTCString();
-        const link = item.querySelector('link')?.textContent?.trim() ?? '#';
-        return {
-            id: `${source}-${i}-${Date.now()}`,
-            headline: title.length > 100 ? title.slice(0, 98) + '…' : title,
-            source,
-            sentiment: parseSentiment(title),
-            timeAgo: timeAgoStr(pubDate),
-            link,
-        };
-    }).filter(n => n.headline.length > 10);
-}
-
+// ─── Live Market News — calls our own Vercel serverless function ──────────────
+// api/news.js fetches RSS server-side, no CORS, no API key needed
 async function fetchLiveNews(): Promise<NewsItem[]> {
-    const results: NewsItem[] = [];
-    // Try all sources in parallel; skip any that fail
-    const fetches = RSS_SOURCES.map(([url, src]) =>
-        fetchRssViaProxy(url, src, 3).catch(() => [] as NewsItem[])
-    );
-    const batches = await Promise.all(fetches);
-    for (const batch of batches) results.push(...batch);
-
-    // Sort by recency (timeAgo heuristic: earlier entries from RSS = newer)
-    return results.slice(0, 12);
+    try {
+        const res = await fetch('/api/news', { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.news ?? [];
+    } catch {
+        return [];
+    }
 }
+
+
 
 export function AISignals({ signals, news: initialNews, showToast, onNewSignal, prices }: AISignalsProps) {
     const [generating, setGenerating] = useState(false);
