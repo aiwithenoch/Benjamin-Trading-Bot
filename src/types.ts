@@ -39,6 +39,7 @@ export interface NewsItem {
     source: string;
     sentiment: Sentiment;
     timeAgo: string;
+    link?: string;
 }
 
 export interface PriceData {

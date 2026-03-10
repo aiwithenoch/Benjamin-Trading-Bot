@@ -11,7 +11,8 @@ import { SettingsPage } from './pages/Settings';
 import { Auth } from './pages/Auth';
 import { Badge, Spinner } from './components';
 import { useDerivPrices, useLivePnL, useSettings } from './hooks';
-import { MOCK_HISTORY, MOCK_NEWS } from './mockData';
+import { MOCK_HISTORY } from './mockData';
+
 import { supabase } from './lib/supabase';
 import { fetchTrades, fetchSignals, fetchSettings, saveSignal, saveSettings as dbSaveSettings, closeTrade as dbCloseTrade } from './lib/db';
 import { startScalpingEngine, stopScalpingEngine } from './lib/scalping-engine';
@@ -296,7 +297,8 @@ export default function App() {
                     {page === 'dashboard' && <Dashboard prices={prices} liveTrades={liveTrades} signals={signals} todayLoss={todayLoss} maxDailyLoss={settings?.maxDailyLoss || 10} dailyLossPercent={dailyLossPercent} lossColorClass={lossColorClass} onViewAll={() => setPage('history')} tradeHistory={tradeHistory} />}
                     {page === 'live' && <LiveTrades trades={liveTrades} prices={prices} onClose={closeTradeAction} />}
                     {page === 'history' && <TradeHistory history={tradeHistory} showToast={showToast} />}
-                    {page === 'signals' && <AISignals signals={signals} news={MOCK_NEWS} showToast={showToast} onNewSignal={addSignalAction} prices={prices} />}
+                    {page === 'signals' && <AISignals signals={signals} news={[]} showToast={showToast} onNewSignal={addSignalAction} prices={prices} />}
+
                     {page === 'settings' && <SettingsPage settings={settings} botStatus={botStatus} todayLoss={todayLoss} dailyLossPercent={dailyLossPercent} lossColorClass={lossColorClass} onToggleBot={toggleBot} onSave={handleSettingsSave} />}
                 </main>
             </div>

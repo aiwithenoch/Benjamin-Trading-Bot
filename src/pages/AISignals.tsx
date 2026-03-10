@@ -12,59 +12,75 @@ interface AISignalsProps {
     prices: Prices;
 }
 
-// ─── Live Market News via GNews API (free tier) ──────────────────────────────
+// ─── Live Market News — real RSS feeds via allorigins.win (free, no key) ─────
+const BULL_WORDS = ['surge', 'rally', 'gain', 'rise', 'bull', 'breakout', 'buy', 'high', 'record', 'soar', 'boost', 'inflow', 'jump', 'climb', 'rebound', 'recovery'];
+const BEAR_WORDS = ['drop', 'fall', 'sell', 'crash', 'bear', 'decline', 'loss', 'outflow', 'ban', 'fear', 'sink', 'plunge', 'dump', 'slide', 'tumble', 'pressure'];
+
+function parseSentiment(title: string): NewsItem['sentiment'] {
+    const lc = title.toLowerCase();
+    const bull = BULL_WORDS.some(w => lc.includes(w));
+    const bear = BEAR_WORDS.some(w => lc.includes(w));
+    if (bull && !bear) return 'BULLISH';
+    if (bear && !bull) return 'BEARISH';
+    return 'NEUTRAL';
+}
+
+function timeAgoStr(pubDate: string): string {
+    const mins = Math.floor((Date.now() - new Date(pubDate).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// Each entry: [rssUrl, defaultSource]
+const RSS_SOURCES: [string, string][] = [
+    ['https://cointelegraph.com/rss', 'CoinTelegraph'],
+    ['https://cryptonews.com/news/feed/', 'CryptoNews'],
+    ['https://www.forexlive.com/feed/news', 'ForexLive'],
+    ['https://www.investing.com/rss/news_25.rss', 'Investing.com'],
+];
+
+async function fetchRssViaProxy(rssUrl: string, source: string, count: number): Promise<NewsItem[]> {
+    // allorigins.win: free, no key, parses RSS to JSON, works from browser
+    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+    const res = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
+    if (!res.ok) return [];
+    const { contents } = await res.json();
+    if (!contents) return [];
+
+    // Parse XML manually — allorigins returns raw XML
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(contents, 'text/xml');
+    const items = Array.from(xml.querySelectorAll('item')).slice(0, count);
+
+    return items.map((item, i) => {
+        const title = item.querySelector('title')?.textContent?.trim() ?? '';
+        const pubDate = item.querySelector('pubDate')?.textContent?.trim() ?? new Date().toUTCString();
+        const link = item.querySelector('link')?.textContent?.trim() ?? '#';
+        return {
+            id: `${source}-${i}-${Date.now()}`,
+            headline: title.length > 100 ? title.slice(0, 98) + '…' : title,
+            source,
+            sentiment: parseSentiment(title),
+            timeAgo: timeAgoStr(pubDate),
+            link,
+        };
+    }).filter(n => n.headline.length > 10);
+}
+
 async function fetchLiveNews(): Promise<NewsItem[]> {
-    try {
-        const queries = [
-            `https://gnews.io/api/v4/search?q=gold+XAUUSD+forex&lang=en&max=3&token=gnews_free_public`,
-            `https://gnews.io/api/v4/search?q=bitcoin+BTCUSD+crypto&lang=en&max=3&token=gnews_free_public`,
-        ];
-        // Use allorigins as CORS proxy for GNews (free, no key needed for basic RSS)
-        const rssFeeds = [
-            'https://feeds.feedburner.com/forexlive/main',
-            'https://cointelegraph.com/rss',
-        ];
-        const results: NewsItem[] = [];
-        let id = 1;
+    const results: NewsItem[] = [];
+    // Try all sources in parallel; skip any that fail
+    const fetches = RSS_SOURCES.map(([url, src]) =>
+        fetchRssViaProxy(url, src, 3).catch(() => [] as NewsItem[])
+    );
+    const batches = await Promise.all(fetches);
+    for (const batch of batches) results.push(...batch);
 
-        for (const rss of rssFeeds) {
-            const url = `/api/news-proxy/v1/json?rss_url=${encodeURIComponent(rss)}&count=4&api_key=public`;
-            const res = await fetch(url);
-            if (!res.ok) continue;
-            const data = await res.json();
-            const items = data?.items || [];
-            const isGold = rss.includes('forex') || rss.includes('feedburner');
-
-            for (const item of items.slice(0, 4)) {
-                const title: string = item.title || '';
-                const lc = title.toLowerCase();
-                let sentiment: NewsItem['sentiment'] = 'NEUTRAL';
-
-                // Simple sentiment heuristic
-                const bullWords = ['surge', 'rally', 'gain', 'rise', 'bull', 'breakout', 'buy', 'up', 'high', 'record', 'soar', 'boost', 'inflow'];
-                const bearWords = ['drop', 'fall', 'sell', 'crash', 'bear', 'decline', 'loss', 'outflow', 'ban', 'fear', 'sink', 'plunge'];
-                const hasBull = bullWords.some(w => lc.includes(w));
-                const hasBear = bearWords.some(w => lc.includes(w));
-                if (hasBull && !hasBear) sentiment = 'BULLISH';
-                else if (hasBear && !hasBull) sentiment = 'BEARISH';
-
-                const pubDate = new Date(item.pubDate || Date.now());
-                const minutesAgo = Math.floor((Date.now() - pubDate.getTime()) / 60000);
-                const timeAgo = minutesAgo < 60 ? `${minutesAgo}m ago` : `${Math.floor(minutesAgo / 60)}h ago`;
-
-                results.push({
-                    id: String(id++),
-                    headline: title.length > 90 ? title.slice(0, 88) + '…' : title,
-                    source: item.author || (isGold ? 'ForexLive' : 'CoinTelegraph'),
-                    sentiment,
-                    timeAgo,
-                });
-            }
-        }
-        return results.length > 0 ? results : [];
-    } catch {
-        return [];
-    }
+    // Sort by recency (timeAgo heuristic: earlier entries from RSS = newer)
+    return results.slice(0, 12);
 }
 
 export function AISignals({ signals, news: initialNews, showToast, onNewSignal, prices }: AISignalsProps) {
@@ -253,11 +269,17 @@ export function AISignals({ signals, news: initialNews, showToast, onNewSignal, 
                     <Card className="p-0 overflow-hidden divide-y divide-aurum-border/50">
                         {liveNews.length === 0 && !newsLoading && (
                             <div className="p-5 text-sm text-aurum-text-muted flex items-center gap-2">
-                                <AlertTriangle size={14} /> No live news — using cached feed.
+                                <AlertTriangle size={14} /> Unable to load live news — check your connection and refresh.
                             </div>
                         )}
                         {liveNews.map(n => (
-                            <div key={n.id} className="p-4 hover:bg-aurum-surface2 transition-colors">
+                            <a
+                                key={n.id}
+                                href={n.link || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block p-4 hover:bg-aurum-surface2 transition-colors"
+                            >
                                 <div className="flex justify-between items-start mb-2">
                                     <Badge variant={n.sentiment === 'BULLISH' ? 'green' : n.sentiment === 'BEARISH' ? 'red' : 'neutral'}>
                                         {n.sentiment}
@@ -266,7 +288,7 @@ export function AISignals({ signals, news: initialNews, showToast, onNewSignal, 
                                 </div>
                                 <p className="text-sm leading-snug mb-1.5 text-aurum-text">{n.headline}</p>
                                 <p className="text-xs text-aurum-text-muted font-semibold">{n.source}</p>
-                            </div>
+                            </a>
                         ))}
                     </Card>
                 </div>

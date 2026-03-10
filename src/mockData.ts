@@ -1,4 +1,5 @@
-import type { Trade, Signal, NewsItem, Prices } from './types';
+import type { Trade, Signal, Prices } from './types';
+
 
 export const MOCK_HISTORY: Trade[] = Array.from({ length: 30 }).map((_, i) => {
     const isGold = Math.random() > 0.5;
@@ -49,13 +50,8 @@ export const INITIAL_SIGNALS: Signal[] = [
     },
 ];
 
-export const MOCK_NEWS: NewsItem[] = [
-    { id: '1', headline: 'Fed signals potential rate cut in Q3, boosting safe-haven appeal for Gold', source: 'Reuters', sentiment: 'BULLISH', timeAgo: '15m ago' },
-    { id: '2', headline: 'Bitcoin ETF outflows reach 2-week high amid regulatory pressure', source: 'Bloomberg', sentiment: 'BEARISH', timeAgo: '1h ago' },
-    { id: '3', headline: 'Gold demand in Asia remains steady despite record high prices', source: 'Financial Times', sentiment: 'NEUTRAL', timeAgo: '3h ago' },
-    { id: '4', headline: 'Whale moves 5,000 BTC to exchange wallet, sparking sell pressure fears', source: 'CoinDesk', sentiment: 'BEARISH', timeAgo: '5h ago' },
-    { id: '5', headline: 'XAUUSD breaks key resistance at 2350, bulls eye 2380 next', source: 'FXStreet', sentiment: 'BULLISH', timeAgo: '7h ago' },
-];
+// No mock news — app always fetches real live RSS feeds
+
 
 export const SPARKLINE_DATA = [
     { value: 0 }, { value: 1.5 }, { value: 0.8 }, { value: 3.2 }, { value: 2.1 }, { value: 4.4 }, { value: 3.8 }, { value: 6.4 }
