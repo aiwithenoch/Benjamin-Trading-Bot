@@ -42,6 +42,7 @@ export default function App() {
     const lossTodayRef = useRef(0);
     const tradesTodayRef = useRef(0);
     const consLossRef = useRef(0);
+    const sessionRef = useRef<any>(null);
 
     const showToast = useCallback((message: string, type: ToastState['type'] = 'success') => {
         setToast({ message, type, id: Date.now() });
@@ -94,6 +95,9 @@ export default function App() {
         loadData();
     }, [session, setSettings, showToast]);
 
+    // Keep sessionRef in sync so startBot callback always has latest session
+    useEffect(() => { sessionRef.current = session; }, [session]);
+
     useEffect(() => {
         const id = setInterval(() => setClock(new Date()), 1000);
         return () => clearInterval(id);
@@ -134,6 +138,61 @@ export default function App() {
     // Keep settingsRef in sync
     useEffect(() => { settingsRef.current = settings; }, [settings]);
 
+    // ─── Reusable startBot (called from toggleBot AND auto-start) ─────────────
+    const startBot = useCallback(() => {
+        setBotStatus('LIVE');
+        localStorage.setItem('aurumBotActive', 'true');
+        showToast('🤖 Scalping bot started — scanning M5 candles...', 'success');
+        setBotLog([]);
+        startScalpingEngine({
+            onSignal: (sig) => {
+                setSignals(prev => [sig, ...prev.slice(0, 99)]);
+                const s = sessionRef.current;
+                if (s?.user && supabase) saveSignal(sig, s.user.id).catch(() => { });
+            },
+            onTradeOpened: (trade) => {
+                setLiveTrades(prev => [trade, ...prev]);
+                tradesTodayRef.current++;
+            },
+            onTradeClosed: (contractId, pnl) => {
+                if (pnl < 0) lossTodayRef.current += Math.abs(pnl);
+                if (pnl < 0) consLossRef.current++; else consLossRef.current = 0;
+                setLiveTrades(prev => {
+                    const trade = prev.find(t => t.id === String(contractId));
+                    if (!trade) return prev;
+                    const closed = { ...trade, status: 'CLOSED' as const, pnl };
+                    setTradeHistory(h => [closed, ...h]);
+                    const s = sessionRef.current;
+                    if (s?.user && supabase) {
+                        dbCloseTrade(String(contractId), closed.exit ?? closed.entry, closed.pips ?? 0, pnl)
+                            .catch(() => { });
+                    }
+                    return prev.filter(t => t.id !== String(contractId));
+                });
+            },
+            onLog: (msg) => setBotLog(prev => [`${new Date().toLocaleTimeString()}: ${msg}`, ...prev.slice(0, 49)]),
+            showToast,
+            getSettings: () => settingsRef.current,
+            getLossTodayUSD: () => lossTodayRef.current,
+            getTradesToday: () => tradesTodayRef.current,
+            getConsecutiveLosses: () => consLossRef.current,
+        });
+    }, [showToast]);
+
+    // ─── Auto-start bot after auth resolves if it was running before refresh ──
+    useEffect(() => {
+        if (!session || authLoading) return;
+        const wasActive = localStorage.getItem('aurumBotActive') === 'true';
+        if (wasActive) {
+            // Small delay to let data load first
+            const t = setTimeout(() => {
+                startBot();
+                showToast('🤖 Bot auto-resumed from previous session', 'success');
+            }, 2500);
+            return () => clearTimeout(t);
+        }
+    }, [session, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const toggleBot = useCallback(() => {
         if (botStatus === 'LIVE') {
             setModal({
@@ -142,47 +201,15 @@ export default function App() {
                 onConfirm: () => {
                     stopScalpingEngine();
                     setBotStatus('STOPPED');
+                    localStorage.setItem('aurumBotActive', 'false');
                     showToast('Bot stopped', 'warning');
                     setModal(null);
                 },
             });
         } else {
-            setBotStatus('LIVE');
-            showToast('🤖 Scalping bot started — scanning M5 candles...', 'success');
-            setBotLog([]);
-            startScalpingEngine({
-                onSignal: (sig) => {
-                    setSignals(prev => [sig, ...prev.slice(0, 99)]);
-                    if (session?.user && supabase) saveSignal(sig, session.user.id).catch(() => { });
-                },
-                onTradeOpened: (trade) => {
-                    setLiveTrades(prev => [trade, ...prev]);
-                    tradesTodayRef.current++;
-                },
-                onTradeClosed: (contractId, pnl) => {
-                    if (pnl < 0) lossTodayRef.current += Math.abs(pnl);
-                    if (pnl < 0) consLossRef.current++; else consLossRef.current = 0;
-                    setLiveTrades(prev => {
-                        const trade = prev.find(t => t.id === String(contractId));
-                        if (!trade) return prev;
-                        const closed = { ...trade, status: 'CLOSED' as const, pnl };
-                        setTradeHistory(h => [closed, ...h]);
-                        if (session?.user && supabase) {
-                            dbCloseTrade(String(contractId), closed.exit ?? closed.entry, closed.pips ?? 0, pnl)
-                                .catch(() => { });
-                        }
-                        return prev.filter(t => t.id !== String(contractId));
-                    });
-                },
-                onLog: (msg) => setBotLog(prev => [`${new Date().toLocaleTimeString()}: ${msg}`, ...prev.slice(0, 49)]),
-                showToast,
-                getSettings: () => settingsRef.current,
-                getLossTodayUSD: () => lossTodayRef.current,
-                getTradesToday: () => tradesTodayRef.current,
-                getConsecutiveLosses: () => consLossRef.current,
-            });
+            startBot();
         }
-    }, [botStatus, showToast, session]);
+    }, [botStatus, showToast, startBot]);
 
     const addSignalAction = useCallback(async (s: Signal) => {
         if (session?.user && supabase) {
