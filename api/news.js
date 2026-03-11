@@ -45,7 +45,9 @@ function parseRSS(xml, source) {
             block.match(/<dc:date[^>]*>([\s\S]*?)<\/dc:date>/);
 
         const title = titleMatch ? titleMatch[1].trim().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"') : '';
-        const link = linkMatch ? linkMatch[1].trim() : '';
+        // Strip CDATA wrappers from link if present
+        let link = linkMatch ? linkMatch[1].trim() : '';
+        link = link.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
         const date = dateMatch ? dateMatch[1].trim() : new Date().toUTCString();
 
         if (title.length > 10) {

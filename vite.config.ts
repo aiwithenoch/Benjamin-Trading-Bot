@@ -24,12 +24,17 @@ export default defineConfig(({ mode }) => {
           rewrite: (p) => p.replace(/^\/api\/claude/, ''),
           headers: {
             'anthropic-version': '2023-06-01',
+            'x-api-key': env.VITE_ANTHROPIC_API_KEY || '',
           },
         },
         '/api/news-proxy': {
           target: 'https://api.rss2json.com',
           changeOrigin: true,
           rewrite: (p) => p.replace(/^\/api\/news-proxy/, ''),
+        },
+        '/api/news': {
+          target: 'https://benjamin-trading-bot-jbdl.vercel.app',
+          changeOrigin: true,
         },
       },
     },
