@@ -28,7 +28,7 @@ export function SettingsPage({
                     <div className="p-5 flex items-center justify-between">
                         <div>
                             <h4 className="font-semibold mb-0.5">Deriv API</h4>
-                            <p className="text-sm text-aurum-text-muted font-mono">d2XG7nqyVOKFfam</p>
+                            <p className="text-sm text-aurum-text-muted font-mono">d2XG7••••••••</p>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="w-2 h-2 rounded-full bg-aurum-green animate-pulse" />
@@ -48,7 +48,7 @@ export function SettingsPage({
                 </Card>
             </section>
 
-            {/* Bot Controls */}
+                {/* Bot Controls */}
             <section>
                 <h3 className="text-sm font-semibold text-aurum-text-muted uppercase tracking-widest mb-4 flex items-center gap-2">
                     <Power size={14} /> Bot Controls
@@ -68,6 +68,17 @@ export function SettingsPage({
                         >
                             {botStatus === 'LIVE' ? '⏹ STOP BOT' : '▶ START BOT'}
                         </button>
+                    </div>
+                    <div className="pt-4 border-t border-aurum-border flex items-center justify-between">
+                        <div>
+                            <h4 className="font-semibold mb-0.5">AI Signal Validation</h4>
+                            <p className="text-sm text-aurum-text-muted">Require Claude AI to validate before placing any trade</p>
+                            <p className="text-xs text-aurum-gold mt-1">Turn OFF to trade on EMA/RSI signals instantly — no AI key needed</p>
+                        </div>
+                        <Toggle
+                            checked={settings.aiValidation !== false}
+                            onChange={() => onSave('aiValidation', !settings.aiValidation)}
+                        />
                     </div>
                     <div className="pt-4 border-t border-aurum-border flex items-center justify-between">
                         <div>
