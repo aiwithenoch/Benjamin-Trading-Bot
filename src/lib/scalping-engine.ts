@@ -244,11 +244,7 @@ async function checkAndTrade(derivSymbol: string, cbs: EngineCallbacks) {
         cbs.onLog('Bot resumed after pause');
     }
 
-    // Guard: session
-    const session = getCurrentSession();
-    if (session === 'CLOSED') {
-        return; // silent — happens all the time outside hours
-    }
+    // Session filter removed — bot trades 24/7
 
     const candles = state.candles[derivSymbol];
     if (!candles || candles.length < 25) return;
