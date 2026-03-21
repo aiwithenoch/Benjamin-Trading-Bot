@@ -128,8 +128,8 @@ export function Dashboard({
                             <BrainCircuit className="text-aurum-cyan" size={22} />
                             <h3 className="text-lg font-semibold">AI Intelligence</h3>
                         </div>
-                        <Badge variant={latestSignal?.type === 'BUY' ? 'green' : latestSignal?.type === 'SELL' ? 'red' : 'gold'}>
-                            {latestSignal?.type === 'BUY' ? 'BULLISH' : 'BEARISH'}
+                        <Badge variant={!latestSignal ? 'neutral' : latestSignal?.type === 'BUY' ? 'green' : latestSignal?.type === 'SELL' ? 'red' : 'gold'}>
+                            {!latestSignal ? 'NO SIGNAL' : latestSignal?.type === 'BUY' ? 'BULLISH' : 'BEARISH'}
                         </Badge>
                     </div>
                     <div className="flex-1 bg-aurum-surface2 rounded-xl p-5 border border-aurum-border mb-5">
