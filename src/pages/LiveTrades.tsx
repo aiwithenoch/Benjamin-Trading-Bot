@@ -38,7 +38,7 @@ export function LiveTrades({ trades, prices, onClose }: LiveTradesProps) {
                                     <div>
                                         <h3 className="text-2xl font-bold font-mono">{trade.symbol}</h3>
                                         <p className="text-xs text-aurum-text-muted mt-0.5">
-                                            <LiveTradeTimer date={trade.date} />
+                                            <LiveTradeTimer openTime={trade.openTime} date={trade.date} />
                                         </p>
                                     </div>
                                     <div className="flex flex-col items-end gap-1">
