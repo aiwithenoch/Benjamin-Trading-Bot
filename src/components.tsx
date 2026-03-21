@@ -38,11 +38,13 @@ export const Badge = ({ children, variant = 'neutral', ...props }: BadgeProps) =
 };
 
 // ─── LiveTradeTimer ──────────────────────────────────────────────────────────
-export const LiveTradeTimer = ({ date }: { date: string }) => {
+export const LiveTradeTimer = ({ openTime, date }: { openTime?: string; date: string }) => {
     const [duration, setDuration] = React.useState('');
     React.useEffect(() => {
         const update = () => {
-            const diff = Math.max(0, Date.now() - new Date(date).getTime());
+            // Prefer openTime (ISO 8601) for reliable parsing; fall back to date
+            const ref = openTime || date;
+            const diff = Math.max(0, Date.now() - new Date(ref).getTime());
             const h = Math.floor(diff / 3600000);
             const m = Math.floor((diff % 3600000) / 60000);
             const s = Math.floor((diff % 60000) / 1000);
@@ -51,7 +53,7 @@ export const LiveTradeTimer = ({ date }: { date: string }) => {
         update();
         const id = setInterval(update, 1000);
         return () => clearInterval(id);
-    }, [date]);
+    }, [openTime, date]);
     return <span>Open {duration}</span>;
 };
 
