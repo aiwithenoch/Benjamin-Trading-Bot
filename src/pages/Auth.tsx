@@ -14,6 +14,7 @@ export function Auth({ onSession, showToast }: AuthProps) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
+    const [confirmationSent, setConfirmationSent] = useState(false);
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,7 +27,9 @@ export function Auth({ onSession, showToast }: AuthProps) {
                     options: { data: { full_name: fullName } }
                 });
                 if (error) throw error;
-                showToast('Check your email for the confirmation link!', 'success');
+                setConfirmationSent(true);
+                showToast('Account created! Check your email to confirm.', 'success');
+                return; // Don't call onSession — wait for email confirm
             } else {
                 const { data, error } = await supabase.auth.signInWithPassword({ email, password });
                 if (error) throw error;
@@ -48,10 +51,24 @@ export function Auth({ onSession, showToast }: AuthProps) {
                     <p className="text-aurum-text-muted text-sm uppercase tracking-widest font-semibold">The Golden Standard of Trading</p>
                 </div>
                 <Card className="p-8 shadow-2xl border-aurum-primary/10">
-                    <div className="flex gap-4 mb-8 p-1 bg-aurum-surface2 rounded-xl">
-                        <button onClick={() => setIsSignUp(false)} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${!isSignUp ? 'bg-aurum-surface3 text-aurum-primary shadow-lg' : 'text-aurum-text-muted hover:text-aurum-text'}`}><LogIn size={16} /> Sign In</button>
-                        <button onClick={() => setIsSignUp(true)} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${isSignUp ? 'bg-aurum-surface3 text-aurum-primary shadow-lg' : 'text-aurum-text-muted hover:text-aurum-text'}`}><UserPlus size={16} /> Sign Up</button>
-                    </div>
+                    {confirmationSent ? (
+                        <div className="text-center py-6 space-y-4">
+                            <div className="text-4xl">📧</div>
+                            <h3 className="text-lg font-bold">Check your inbox!</h3>
+                            <p className="text-sm text-aurum-text-muted">We sent a confirmation link to <span className="text-aurum-primary font-semibold">{email}</span>. Click it to activate your account, then sign in.</p>
+                            <button
+                                onClick={() => { setConfirmationSent(false); setIsSignUp(false); }}
+                                className="w-full bg-aurum-primary text-aurum-bg font-bold py-3 rounded-xl hover:bg-aurum-primary-light transition-all mt-4"
+                            >
+                                Back to Sign In
+                            </button>
+                        </div>
+                    ) : (
+                        <>
+                        <div className="flex gap-4 mb-8 p-1 bg-aurum-surface2 rounded-xl">
+                            <button onClick={() => setIsSignUp(false)} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${!isSignUp ? 'bg-aurum-surface3 text-aurum-primary shadow-lg' : 'text-aurum-text-muted hover:text-aurum-text'}`}><LogIn size={16} /> Sign In</button>
+                            <button onClick={() => setIsSignUp(true)} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${isSignUp ? 'bg-aurum-surface3 text-aurum-primary shadow-lg' : 'text-aurum-text-muted hover:text-aurum-text'}`}><UserPlus size={16} /> Sign Up</button>
+                        </div>
                     <form onSubmit={handleAuth} className="space-y-5">
                         {isSignUp && (
                             <div className="space-y-2">
@@ -89,6 +106,8 @@ export function Auth({ onSession, showToast }: AuthProps) {
                         </button>
                     </form>
 
+                    </>
+                    )}
                 </Card>
                 <p className="text-center mt-8 text-xs text-aurum-text-muted">RiverSide AI Systems · {new Date().getFullYear()} · All Rights Reserved</p>
             </div>
