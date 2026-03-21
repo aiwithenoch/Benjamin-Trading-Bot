@@ -217,6 +217,7 @@ async function checkAndTrade(derivSymbol: string, cbs: EngineCallbacks) {
     const settings = cbs.getSettings();
     const maxLoss = settings?.maxDailyLoss ?? 10;
     const maxTrades = 30;
+    const useAI = settings?.aiValidation !== false; // default true
 
     // Guard: daily loss limit
     const totalLoss = cbs.getLossTodayUSD();
@@ -252,7 +253,7 @@ async function checkAndTrade(derivSymbol: string, cbs: EngineCallbacks) {
     const candles = state.candles[derivSymbol];
     if (!candles || candles.length < 25) return;
 
-    // Detect signal
+    // Detect technical signal
     const rawSignal = detectSignal(candles);
     if (!rawSignal.type) return;
 
@@ -262,7 +263,6 @@ async function checkAndTrade(derivSymbol: string, cbs: EngineCallbacks) {
     lastSignalEpoch[derivSymbol] = latestEpoch;
 
     const appSymbol = DERIV_SYMBOL_TO_APP[derivSymbol] as 'XAUUSD' | 'BTCUSD';
-    cbs.onLog(`📡 Signal detected: ${appSymbol} ${rawSignal.type} — sending to Claude...`);
 
     // Get current price from last candle
     const lastCandle = candles[candles.length - 1];
@@ -276,36 +276,79 @@ async function checkAndTrade(derivSymbol: string, cbs: EngineCallbacks) {
     const low = Math.min(...recent.map(c => c.low));
     const change24h = parseFloat((((bid - candles[0].close) / candles[0].close) * 100).toFixed(2));
 
-    let claudeResult;
-    try {
-        claudeResult = await generateClaudeSignal(appSymbol, bid, ask, change24h, spread, high, low);
-    } catch (e: any) {
-        cbs.onLog(`Claude error: ${e?.message}`);
-        return;
+    // Default SL/TP based on raw signal if Claude is not used
+    let slPips = appSymbol === 'XAUUSD' ? 15 : 200;
+    let tpPips = appSymbol === 'XAUUSD' ? 30 : 400;
+    let reasoning = rawSignal.reason;
+    let confidence = 70;
+    let decision: 'VALIDATED' | 'WATCHING' = 'VALIDATED';
+
+    // ─── Claude AI Validation (optional) ────────────────────────────────────────
+    if (useAI) {
+        cbs.onLog(`📡 Signal detected: ${appSymbol} ${rawSignal.type} — sending to Claude...`);
+        try {
+            const claudeResult = await generateClaudeSignal(appSymbol, bid, ask, change24h, spread, high, low);
+            slPips = claudeResult.sl_pips;
+            tpPips = claudeResult.tp_pips;
+            reasoning = claudeResult.reasoning;
+            confidence = claudeResult.confidence;
+            decision = claudeResult.decision === 'VALIDATED' ? 'VALIDATED' : 'WATCHING';
+
+            // Log the Claude signal
+            const signal: Signal = {
+                id: `${Date.now()}`,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                model: 'Claude claude-opus-4-5',
+                symbol: appSymbol,
+                type: rawSignal.type,
+                decision: claudeResult.decision,
+                reasoning,
+                confidence,
+            };
+            cbs.onSignal(signal);
+
+            if (claudeResult.decision !== 'VALIDATED' || confidence < 70) {
+                cbs.onLog(`⏭ Signal ${claudeResult.decision} (${confidence}% confidence) — skipping trade`);
+                return;
+            }
+            cbs.onLog(`✅ Claude VALIDATED ${appSymbol} ${rawSignal.type} (${confidence}%) — placing trade...`);
+        } catch (e: any) {
+            // Claude failed — fall back to TA-only trading instead of blocking
+            cbs.onLog(`⚠️ Claude unavailable (${e?.message?.slice(0, 60) || 'error'}) — trading on TA signal`);
+            decision = 'VALIDATED';
+
+            // Still log a TA signal entry
+            const signal: Signal = {
+                id: `${Date.now()}`,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                model: 'TA Only (EMA9/21 + RSI7)',
+                symbol: appSymbol,
+                type: rawSignal.type,
+                decision: 'VALIDATED',
+                reasoning: rawSignal.reason,
+                confidence: 70,
+            };
+            cbs.onSignal(signal);
+            cbs.onLog(`📊 EMA9/21 crossover confirmed — placing TA trade on ${appSymbol} ${rawSignal.type}`);
+        }
+    } else {
+        // AI validation disabled — trade straight on the EMA/RSI signal
+        cbs.onLog(`📊 TA Signal: ${appSymbol} ${rawSignal.type} | EMA9=${rawSignal.ema9.toFixed(2)} EMA21=${rawSignal.ema21.toFixed(2)} RSI=${rawSignal.rsi.toFixed(1)}`);
+        const signal: Signal = {
+            id: `${Date.now()}`,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            model: 'TA Only (EMA9/21 + RSI7)',
+            symbol: appSymbol,
+            type: rawSignal.type,
+            decision: 'VALIDATED',
+            reasoning: rawSignal.reason,
+            confidence: 70,
+        };
+        cbs.onSignal(signal);
+        cbs.onLog(`🚀 AI validation OFF — placing trade directly on ${appSymbol} ${rawSignal.type}`);
     }
 
-    // Log the signal
-    const signal: Signal = {
-        id: `${Date.now()}`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        model: 'Claude claude-opus-4-5',
-        symbol: appSymbol,
-        type: rawSignal.type,
-        decision: claudeResult.decision,
-        reasoning: claudeResult.reasoning,
-        confidence: claudeResult.confidence,
-    };
-    cbs.onSignal(signal);
-
-    // Only trade if Claude validates with sufficient confidence
-    if (claudeResult.decision !== 'VALIDATED' || claudeResult.confidence < 70) {
-        cbs.onLog(`Signal ${claudeResult.decision} (${claudeResult.confidence}% confidence) — no trade`);
-        return;
-    }
-
-    cbs.onLog(`✅ Claude VALIDATED ${appSymbol} ${rawSignal.type} (${claudeResult.confidence}%) — placing trade...`);
-
-    // Get proposal from Deriv then execute
+    // ─── Execute Trade ───────────────────────────────────────────────────────────
     const client = getDerivTradingClient();
     const proposalId = String(Date.now());
     pendingProposals.set(proposalId, {
@@ -313,10 +356,12 @@ async function checkAndTrade(derivSymbol: string, cbs: EngineCallbacks) {
         direction: rawSignal.type,
         bid,
         ask,
-        slPips: claudeResult.sl_pips,
-        tpPips: claudeResult.tp_pips,
-        reasoning: claudeResult.reasoning,
-        confidence: claudeResult.confidence,
+        slPips,
+        tpPips,
+        reasoning,
+        confidence,
     });
-    client.getProposal(derivSymbol, rawSignal.type, 1, claudeResult.sl_pips, claudeResult.tp_pips);
+    client.getProposal(derivSymbol, rawSignal.type, 1, slPips, tpPips);
 }
+
+
