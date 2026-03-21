@@ -14,14 +14,18 @@ import { useDerivPrices, useLivePnL, useSettings } from './hooks';
 import { MOCK_HISTORY } from './mockData';
 
 import { supabase } from './lib/supabase';
-import { fetchTrades, fetchSignals, fetchSettings, saveSignal, saveSettings as dbSaveSettings, closeTrade as dbCloseTrade } from './lib/db';
+import { fetchTrades, fetchSignals, fetchSettings, saveSignal, saveTrade, saveSettings as dbSaveSettings, closeTrade as dbCloseTrade } from './lib/db';
 import { startScalpingEngine, stopScalpingEngine } from './lib/scalping-engine';
 import type { Page, Trade, Signal, ToastState, ModalState, Settings } from './types';
+
+// Helper: true when the user authenticated normally (not guest)
+const isRealUser = (s: any) => s?.user && s.user.id !== 'guest' && !s.isGuest;
 
 const INITIAL_SETTINGS: Settings = {
     maxDailyLoss: 10, lotSize: 0.1, riskReward: '1:2',
     tradeXAU: true, tradeBTC: true,
     notifOpen: true, notifClose: true, notifLimit: true, notifSignal: false,
+    aiValidation: true,
 };
 
 export default function App() {
@@ -69,9 +73,9 @@ export default function App() {
         return () => subscription.unsubscribe();
     }, []);
 
-    // 📥 Load Data on Auth
+    // 📥 Load Data on Auth (skip for guest users)
     useEffect(() => {
-        if (!session?.user || !supabase) return;
+        if (!isRealUser(session) || !supabase) return;
         const loadData = async () => {
             setDataLoading(true);
             try {
@@ -148,11 +152,14 @@ export default function App() {
             onSignal: (sig) => {
                 setSignals(prev => [sig, ...prev.slice(0, 99)]);
                 const s = sessionRef.current;
-                if (s?.user && supabase) saveSignal(sig, s.user.id).catch(() => { });
+                if (isRealUser(s) && supabase) saveSignal(sig, s.user.id).catch(() => { });
             },
             onTradeOpened: (trade) => {
                 setLiveTrades(prev => [trade, ...prev]);
                 tradesTodayRef.current++;
+                // ✅ Persist new trade to Supabase so it survives a refresh
+                const s = sessionRef.current;
+                if (isRealUser(s) && supabase) saveTrade(trade, s.user.id).catch(() => { });
             },
             onTradeClosed: (contractId, pnl) => {
                 if (pnl < 0) lossTodayRef.current += Math.abs(pnl);
@@ -163,7 +170,7 @@ export default function App() {
                     const closed = { ...trade, status: 'CLOSED' as const, pnl };
                     setTradeHistory(h => [closed, ...h]);
                     const s = sessionRef.current;
-                    if (s?.user && supabase) {
+                    if (isRealUser(s) && supabase) {
                         dbCloseTrade(String(contractId), closed.exit ?? closed.entry, closed.pips ?? 0, pnl)
                             .catch(() => { });
                     }
@@ -212,7 +219,7 @@ export default function App() {
     }, [botStatus, showToast, startBot]);
 
     const addSignalAction = useCallback(async (s: Signal) => {
-        if (session?.user && supabase) {
+        if (isRealUser(session) && supabase) {
             await saveSignal(s, session.user.id);
         }
         setSignals(prev => [s, ...prev]);
@@ -221,13 +228,13 @@ export default function App() {
     const handleSettingsSave = useCallback(async (key: keyof Settings, value: any) => {
         const newSettings = { ...settings, [key]: value };
         updateSettings(key, value);
-        if (session?.user && supabase) {
+        if (isRealUser(session) && supabase) {
             await dbSaveSettings(newSettings, session.user.id);
         }
     }, [settings, updateSettings, session]);
 
     const handleLogout = async () => {
-        if (supabase) await supabase.auth.signOut();
+        if (supabase && isRealUser(session)) await supabase.auth.signOut();
         setSession(null);
         showToast('Logged out successfully', 'success');
     };
@@ -327,6 +334,21 @@ export default function App() {
                     {page === 'signals' && <AISignals signals={signals} news={[]} showToast={showToast} onNewSignal={addSignalAction} prices={prices} />}
 
                     {page === 'settings' && <SettingsPage settings={settings} botStatus={botStatus} todayLoss={todayLoss} dailyLossPercent={dailyLossPercent} lossColorClass={lossColorClass} onToggleBot={toggleBot} onSave={handleSettingsSave} />}
+
+                    {/* ─── Bot Activity Log ─────────────────────────────────────────────────── */}
+                    {botLog.length > 0 && (
+                        <details className="mt-6 group">
+                            <summary className="cursor-pointer text-xs text-aurum-text-muted font-semibold uppercase tracking-widest flex items-center gap-2 select-none hover:text-aurum-text transition-colors">
+                                <span className={`w-1.5 h-1.5 rounded-full ${botStatus === 'LIVE' ? 'bg-aurum-green animate-pulse' : 'bg-aurum-text-muted'}`} />
+                                Bot Activity Log ({botLog.length})
+                            </summary>
+                            <div className="mt-3 bg-black/60 border border-aurum-border rounded-xl p-4 font-mono text-xs space-y-1 max-h-60 overflow-y-auto">
+                                {botLog.map((line, i) => (
+                                    <p key={i} className="text-aurum-text-muted leading-relaxed">{line}</p>
+                                ))}
+                            </div>
+                        </details>
+                    )}
                 </main>
             </div>
             {toast && (
