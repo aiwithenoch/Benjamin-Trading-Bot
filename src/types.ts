@@ -67,6 +67,7 @@ export interface Settings {
     notifClose: boolean;
     notifLimit: boolean;
     notifSignal: boolean;
+    aiValidation: boolean; // When false, trade on TA signal alone without Claude
 }
 
 export interface ToastState {
