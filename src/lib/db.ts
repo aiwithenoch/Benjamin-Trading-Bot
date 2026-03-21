@@ -100,5 +100,6 @@ export async function fetchSettings(userId: string): Promise<Settings | null> {
         tradeBTC: data.tradeBTC, notifOpen: data.notifOpen,
         notifClose: data.notifClose, notifLimit: data.notifLimit,
         notifSignal: data.notifSignal,
+        aiValidation: data.aiValidation !== false, // default true
     };
 }
