@@ -46,6 +46,7 @@ class DerivTradingClient {
         try {
             this.ws = new WebSocket(DERIV_WS);
             this.ws.onopen = () => {
+                this.emit({ type: 'error', data: { message: 'WS Connected — authorizing...' } });
                 this.send({ authorize: DERIV_TOKEN });
             };
             this.ws.onmessage = (evt) => {
@@ -75,9 +76,16 @@ class DerivTradingClient {
                     this.emit({ type: 'portfolio', data: msg.portfolio });
                 }
             };
-            this.ws.onerror = () => this.scheduleReconnect();
-            this.ws.onclose = () => this.scheduleReconnect();
-        } catch {
+            this.ws.onerror = (e) => {
+                this.emit({ type: 'error', data: { message: 'WebSocket network error.' } });
+                this.scheduleReconnect();
+            };
+            this.ws.onclose = (e) => {
+                this.emit({ type: 'error', data: { message: `WebSocket closed (code: ${e.code}). Reconnecting in 5s...` } });
+                this.scheduleReconnect();
+            };
+        } catch (err: any) {
+            this.emit({ type: 'error', data: { message: `Failed to open WS: ${err?.message}` } });
             this.scheduleReconnect();
         }
     }
